@@ -2,144 +2,89 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>GunGuna Paani · Depth Node</title>
-<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CarbonOracle · Phone Sensor</title>
 <style>
-  :root { --green:#39ff14; --amber:#ffb300; --red:#ff3333; }
-  * { margin:0; padding:0; box-sizing:border-box; }
-  html,body { width:100vw; height:100dvh; overflow:hidden; background:#000;
-    font-family:'Share Tech Mono',monospace; color:var(--green); }
-
-  #depthCanvas { position:fixed; top:0; left:0; width:100vw; height:100dvh; z-index:0; }
-
-  .scanlines { position:fixed; inset:0; z-index:1; pointer-events:none;
-    background:repeating-linear-gradient(to bottom,transparent 0px,transparent 3px,
-    rgba(0,0,0,0.15) 3px,rgba(0,0,0,0.15) 4px); }
-  .vignette { position:fixed; inset:0; z-index:2; pointer-events:none;
-    background:radial-gradient(ellipse at center,transparent 45%,rgba(0,0,0,0.8) 100%); }
-
-  .topbar { position:fixed; top:0; left:0; right:0; z-index:10;
-    display:flex; align-items:center; justify-content:space-between;
-    padding:14px 18px 10px;
-    background:linear-gradient(to bottom,rgba(0,0,0,0.85),transparent); }
-  .logo { font-family:'Orbitron',monospace; font-size:0.8rem; font-weight:900;
-    letter-spacing:4px; color:var(--green); text-shadow:0 0 12px var(--green); }
-  .logo em { color:#fff; font-style:normal; font-weight:400; }
-  .srow { display:flex; align-items:center; gap:6px; }
-  .dot { width:7px; height:7px; border-radius:50%; background:#333; }
-  .dot.live { background:var(--green); box-shadow:0 0 8px var(--green); animation:blink 1.2s infinite; }
-  .dot.err  { background:var(--red);   box-shadow:0 0 8px var(--red); }
-  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
-  .stxt { font-size:0.55rem; letter-spacing:3px; color:#888; }
-
-  .hud { position:fixed; z-index:10; background:rgba(0,0,0,0.75);
-    border:1px solid rgba(57,255,20,0.18); border-radius:8px; padding:9px 12px;
-    backdrop-filter:blur(4px); }
-  .hud.tl { top:60px; left:10px; }
-  .hud.tr { top:60px; right:10px; }
-  .hud.bl { bottom:85px; left:10px; }
-  .hud.br { bottom:85px; right:10px; }
-  .hlbl { font-size:0.45rem; letter-spacing:3px; color:#444; margin-bottom:6px; }
-  .hrow { display:flex; justify-content:space-between; gap:10px; margin-bottom:3px; }
-  .hk { font-size:0.52rem; color:#555; }
-  .hv { font-size:0.68rem; color:var(--green); font-weight:bold; }
-  .hv.a { color:var(--amber); } .hv.w { color:#fff; } .hv.d { color:#333; }
-
-  .xhair { position:fixed; top:50%; left:50%; transform:translate(-50%,-50%);
-    width:36px; height:36px; z-index:9; pointer-events:none; }
-  .xhair::before,.xhair::after { content:''; position:absolute; background:rgba(57,255,20,0.55); }
-  .xhair::before { width:1px; height:100%; left:50%; top:0; }
-  .xhair::after  { width:100%; height:1px; top:50%; left:0; }
-
-  .ctr { position:fixed; top:50%; left:50%; transform:translate(-50%,28px);
-    z-index:10; text-align:center; pointer-events:none; }
-  .ctr-val { font-family:'Orbitron',monospace; font-size:1.3rem; font-weight:900;
-    color:#fff; text-shadow:0 0 18px rgba(255,255,255,0.7),0 0 36px rgba(57,255,20,0.3);
-    letter-spacing:2px; }
-  .ctr-lbl { font-size:0.42rem; letter-spacing:4px; color:#555; margin-top:1px; }
-
-  .legend { position:fixed; bottom:85px; left:50%; transform:translateX(-50%);
-    z-index:10; display:flex; align-items:center; gap:8px;
-    background:rgba(0,0,0,0.7); border:1px solid rgba(57,255,20,0.12);
-    border-radius:20px; padding:5px 12px; backdrop-filter:blur(4px); }
-  .lbar { width:72px; height:7px; border-radius:4px; border:1px solid #222;
-    background:linear-gradient(to right,#000,#fff); }
-  .ltxt { font-size:0.46rem; letter-spacing:2px; color:#555; }
-
-  .btmbar { position:fixed; bottom:0; left:0; right:0; z-index:10;
-    display:flex; gap:8px; align-items:center; justify-content:center;
-    padding:10px 14px 18px;
-    background:linear-gradient(to top,rgba(0,0,0,0.9),transparent); }
-  .btn-start { flex:1; max-width:240px; padding:13px;
-    background:var(--green); color:#000; border:none; border-radius:10px;
-    font-family:'Orbitron',monospace; font-size:0.72rem; font-weight:700;
-    letter-spacing:3px; cursor:pointer; box-shadow:0 0 18px rgba(57,255,20,0.35); }
-  .btn-start:disabled { background:#1a1a1a; color:#333; box-shadow:none; cursor:not-allowed; }
-  .btn-mode { padding:13px 14px; background:transparent;
-    border:1px solid rgba(57,255,20,0.25); border-radius:10px;
-    color:var(--green); font-family:'Share Tech Mono',monospace;
-    font-size:0.6rem; cursor:pointer; }
-  .fps-badge { font-size:0.44rem; letter-spacing:2px; color:#2a2a2a; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Courier New', monospace;
+    background: #0a0f0a;
+    color: #39ff14;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 20px;
+  }
+  h1 { font-size: 1.2rem; letter-spacing: 4px; margin: 20px 0 5px; color: #39ff14; text-transform: uppercase; }
+  .sub { font-size: 0.65rem; color: #555; letter-spacing: 2px; margin-bottom: 24px; }
+  .status-pill {
+    padding: 6px 18px; border-radius: 20px; font-size: 0.7rem;
+    letter-spacing: 2px; margin-bottom: 20px;
+    border: 1px solid #39ff14; color: #39ff14;
+    transition: all 0.3s;
+  }
+  .status-pill.live { background: #39ff1422; animation: pulse 1.5s infinite; }
+  .status-pill.error { border-color: #ff4444; color: #ff4444; background: #ff444422; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
+  .card {
+    width: 100%; max-width: 360px;
+    background: #111a11;
+    border: 1px solid #1a2e1a;
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 12px;
+  }
+  .card-title { font-size: 0.6rem; letter-spacing: 3px; color: #555; margin-bottom: 12px; }
+  .row { display: flex; justify-content: space-between; margin-bottom: 8px; }
+  .label { font-size: 0.7rem; color: #666; }
+  .val { font-size: 0.85rem; color: #39ff14; font-weight: bold; }
+  .val.dim { color: #ffb300; }
+  .btn {
+    width: 100%; max-width: 360px;
+    padding: 16px; border: none; border-radius: 12px;
+    background: #39ff14; color: #0a0f0a;
+    font-family: 'Courier New', monospace;
+    font-size: 0.9rem; font-weight: bold;
+    letter-spacing: 2px; cursor: pointer;
+    margin-top: 8px;
+  }
+  .btn:disabled { background: #1a2e1a; color: #333; cursor: not-allowed; }
+  .counter { font-size: 0.65rem; color: #333; text-align: center; margin-top: 12px; letter-spacing: 2px; }
 </style>
 </head>
 <body>
 
-<canvas id="depthCanvas"></canvas>
-<div class="scanlines"></div>
-<div class="vignette"></div>
-<video id="vid" style="position:fixed;opacity:0;pointer-events:none;top:-9999px;width:320px;height:240px"
-  autoplay playsinline muted></video>
+<h1>CarbonOracle</h1>
+<div class="sub">PHONE SENSOR NODE</div>
 
-<div class="topbar">
-  <div class="logo">Carbon<em>Oracle</em></div>
-  <div class="srow"><div class="dot" id="dot"></div><span class="stxt" id="stxt">IDLE</span></div>
+<div class="status-pill" id="statusPill">● IDLE</div>
+
+<!-- GPS card now includes ALT -->
+<div class="card">
+  <div class="card-title">📍 GPS</div>
+  <div class="row"><span class="label">LAT</span><span class="val" id="lat">--</span></div>
+  <div class="row"><span class="label">LNG</span><span class="val" id="lng">--</span></div>
+  <div class="row"><span class="label">ALT</span><span class="val dim" id="alt">--</span></div>
+  <div class="row"><span class="label">ACC</span><span class="val" id="acc">--</span></div>
 </div>
 
-<div class="xhair"></div>
-<div class="ctr">
-  <div class="ctr-val" id="ctrVal">--</div>
-  <div class="ctr-lbl">CENTER DEPTH</div>
+<div class="card">
+  <div class="card-title">📐 ACCELEROMETER (m/s²)</div>
+  <div class="row"><span class="label">X</span><span class="val" id="ax">--</span></div>
+  <div class="row"><span class="label">Y</span><span class="val" id="ay">--</span></div>
+  <div class="row"><span class="label">Z</span><span class="val" id="az">--</span></div>
 </div>
 
-<div class="hud tl">
-  <div class="hlbl">📍 GPS</div>
-  <div class="hrow"><span class="hk">LAT</span><span class="hv" id="lat">--</span></div>
-  <div class="hrow"><span class="hk">LNG</span><span class="hv" id="lng">--</span></div>
-  <div class="hrow"><span class="hk">ALT</span><span class="hv a" id="alt">--</span></div>
-  <div class="hrow"><span class="hk">ACC</span><span class="hv w" id="acc">--</span></div>
+<div class="card">
+  <div class="card-title">🌀 GYROSCOPE (°/s)</div>
+  <div class="row"><span class="label">α (Z)</span><span class="val" id="ga">--</span></div>
+  <div class="row"><span class="label">β (X)</span><span class="val" id="gb">--</span></div>
+  <div class="row"><span class="label">γ (Y)</span><span class="val" id="gg">--</span></div>
 </div>
 
-<div class="hud tr">
-  <div class="hlbl">📐 IMU</div>
-  <div class="hrow"><span class="hk">AX</span><span class="hv" id="ax">--</span></div>
-  <div class="hrow"><span class="hk">AY</span><span class="hv" id="ay">--</span></div>
-  <div class="hrow"><span class="hk">AZ</span><span class="hv a" id="az">--</span></div>
-  <div class="hrow"><span class="hk">GY</span><span class="hv" id="gy">--</span></div>
-</div>
-
-<div class="hud bl">
-  <div class="hlbl">🌊 DEPTH</div>
-  <div class="hrow"><span class="hk">NEAR</span><span class="hv w" id="dNear">--</span></div>
-  <div class="hrow"><span class="hk">FAR</span> <span class="hv d" id="dFar">--</span></div>
-  <div class="hrow"><span class="hk">AVG</span> <span class="hv"  id="dAvg">--</span></div>
-  <div class="fps-badge" id="fps">-- FPS</div>
-</div>
-
-<div class="hud br">
-  <div class="hlbl">📡 UPLINK</div>
-  <div class="hrow"><span class="hk">PKTS</span><span class="hv" id="pkts">0</span></div>
-  <div class="hrow"><span class="hk">KB</span>  <span class="hv a" id="kb">--</span></div>
-</div>
-
-<div class="legend">
-  <span class="ltxt">NEAR</span><div class="lbar"></div><span class="ltxt">FAR</span>
-</div>
-
-<div class="btmbar">
-  <button class="btn-mode" id="colorBtn" onclick="nextMode()">⬜ GREY</button>
-  <button class="btn-start" id="startBtn" onclick="startAll()">⬡ START DEPTH SCAN</button>
-</div>
+<button class="btn" id="startBtn" onclick="startSensors()">START STREAMING</button>
+<div class="counter" id="counter">PACKETS SENT: 0</div>
 
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
@@ -154,247 +99,82 @@ const firebaseConfig = {
   messagingSenderId: "498191140744",
   appId: "1:498191140744:web:8bcf47ebab898006165c3d"
 };
+
 const app = initializeApp(firebaseConfig);
-const db  = getDatabase(app);
+const db = getDatabase(app);
 
-// ── CONFIG ─────────────────────────────────────────────
-const PROC_W = 128, PROC_H = 96; // processing resolution (fast)
-let colorMode = 0, packets = 0, running = false;
-let fCount = 0, fTime = performance.now();
-
-let SD = {
-  gps:  { lat:0, lng:0, alt:0, acc:0 },
-  accel:{ x:0, y:0, z:0 },
-  gyro: { alpha:0, beta:0, gamma:0 },
-  depth:{ near:0, far:0, avg:0, center:0, imageB64:'' }
+// alt field added to gps object
+let sensorData = {
+  gps: { lat: 0, lng: 0, alt: 0, acc: 0 },
+  accel: { x: 0, y: 0, z: 0 },
+  gyro: { alpha: 0, beta: 0, gamma: 0 }
 };
+let packets = 0;
+let streaming = false;
 
-// Two canvases: proc (small, hidden) + depth (fullscreen display)
-const proc = document.createElement('canvas');
-proc.width = PROC_W; proc.height = PROC_H;
-const pCtx = proc.getContext('2d', { willReadFrequently:true });
-
-const dc   = document.getElementById('depthCanvas');
-const dCtx = dc.getContext('2d');
-
-// ── START — no model loading, instant ─────────────────
-window.startAll = async function() {
+window.startSensors = async function() {
   const btn = document.getElementById('startBtn');
   btn.disabled = true;
-  setDot('', 'STARTING...');
 
-  // iOS motion permission
-  if (typeof DeviceMotionEvent !== 'undefined' &&
-      typeof DeviceMotionEvent.requestPermission === 'function') {
-    try { await DeviceMotionEvent.requestPermission(); } catch(e) {}
+  // Request motion permission (iOS 13+)
+  if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
+    try {
+      const perm = await DeviceMotionEvent.requestPermission();
+      if (perm !== 'granted') { setError('Motion permission denied'); btn.disabled=false; return; }
+    } catch(e) { setError('Permission error'); btn.disabled=false; return; }
   }
 
   // GPS
-  if (navigator.geolocation) {
-    navigator.geolocation.watchPosition(pos => {
-      const c = pos.coords, alt = c.altitude ?? 0;
-      SD.gps = { lat:c.latitude, lng:c.longitude, alt, acc:c.accuracy };
-      g('lat').textContent = c.latitude.toFixed(5);
-      g('lng').textContent = c.longitude.toFixed(5);
-      g('alt').textContent = alt.toFixed(1)+'m';
-      g('acc').textContent = '±'+c.accuracy.toFixed(0)+'m';
-    }, null, { enableHighAccuracy:true });
-  }
+  if (!navigator.geolocation) { setError('No GPS'); btn.disabled=false; return; }
+  navigator.geolocation.watchPosition(pos => {
+    const c = pos.coords;
+    // altitude comes from c.altitude — null if device doesn't support it, fallback to 0
+    const alt = c.altitude ?? 0;
+    sensorData.gps = { lat: c.latitude, lng: c.longitude, alt: alt, acc: c.accuracy };
+    document.getElementById('lat').textContent = c.latitude.toFixed(6);
+    document.getElementById('lng').textContent = c.longitude.toFixed(6);
+    document.getElementById('alt').textContent = alt.toFixed(2) + ' m';
+    document.getElementById('acc').textContent = c.accuracy.toFixed(1) + ' m';
+  }, err => setError('GPS: ' + err.message), { enableHighAccuracy: true });
 
-  // Accel
+  // Accelerometer
   window.addEventListener('devicemotion', e => {
-    const a = e.accelerationIncludingGravity; if (!a) return;
-    SD.accel = { x:+(a.x||0).toFixed(2), y:+(a.y||0).toFixed(2), z:+(a.z||0).toFixed(2) };
-    g('ax').textContent = SD.accel.x;
-    g('ay').textContent = SD.accel.y;
-    g('az').textContent = SD.accel.z;
+    const a = e.accelerationIncludingGravity;
+    if (!a) return;
+    sensorData.accel = { x: a.x?.toFixed(3)||0, y: a.y?.toFixed(3)||0, z: a.z?.toFixed(3)||0 };
+    document.getElementById('ax').textContent = sensorData.accel.x;
+    document.getElementById('ay').textContent = sensorData.accel.y;
+    document.getElementById('az').textContent = sensorData.accel.z;
   });
 
-  // Gyro
+  // Gyroscope
   window.addEventListener('deviceorientation', e => {
-    SD.gyro = { alpha:+(e.alpha||0).toFixed(1), beta:+(e.beta||0).toFixed(1), gamma:+(e.gamma||0).toFixed(1) };
-    g('gy').textContent = SD.gyro.beta;
+    sensorData.gyro = { alpha: e.alpha?.toFixed(2)||0, beta: e.beta?.toFixed(2)||0, gamma: e.gamma?.toFixed(2)||0 };
+    document.getElementById('ga').textContent = sensorData.gyro.alpha;
+    document.getElementById('gb').textContent = sensorData.gyro.beta;
+    document.getElementById('gg').textContent = sensorData.gyro.gamma;
   });
 
-  // Camera — this is the only thing that can fail
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video:{ facingMode:{ ideal:'environment' }, width:{ ideal:640 }, height:{ ideal:480 } }
-    });
-    const vid = document.getElementById('vid');
-    vid.srcObject = stream;
-    await vid.play();
-  } catch(e) {
-    setDot('err', 'CAM ERR');
-    btn.disabled = false;
-    return;
-  }
+  streaming = true;
+  setLive();
 
-  running = true;
-  setDot('live', 'LIVE');
-  requestAnimationFrame(loop);
-  setInterval(pushFB, 800);
+  // Push to Firebase every 500ms (faster for terrain mapping)
+  setInterval(() => {
+    if (!streaming) return;
+    set(ref(db, 'rover/phone'), { ...sensorData, timestamp: Date.now() })
+      .then(() => { packets++; document.getElementById('counter').textContent = 'PACKETS SENT: ' + packets; })
+      .catch(err => setError(err.message));
+  }, 500);
 };
 
-// ── MAIN LOOP ──────────────────────────────────────────
-function loop() {
-  if (!running) return;
-  const vid = document.getElementById('vid');
-  if (!vid || vid.readyState < 2) { requestAnimationFrame(loop); return; }
-
-  // FPS
-  fCount++;
-  const now = performance.now();
-  if (now - fTime > 1000) {
-    g('fps').textContent = Math.round(fCount*1000/(now-fTime))+' FPS';
-    fCount = 0; fTime = now;
-  }
-
-  // Fit display canvas to screen
-  const W = window.innerWidth, H = window.innerHeight;
-  if (dc.width !== W)  dc.width  = W;
-  if (dc.height !== H) dc.height = H;
-
-  // Draw video frame to small canvas
-  pCtx.drawImage(vid, 0, 0, PROC_W, PROC_H);
-  const id   = pCtx.getImageData(0, 0, PROC_W, PROC_H);
-  const src  = id.data;
-
-  // Compute depth
-  const raw      = computeDepth(src, PROC_W, PROC_H);
-  const smoothed = boxBlur(raw, PROC_W, PROC_H, 2);
-
-  // Stats
-  let mn=1, mx=0, sm=0;
-  for (let i=0; i<smoothed.length; i++) {
-    if (smoothed[i]<mn) mn=smoothed[i];
-    if (smoothed[i]>mx) mx=smoothed[i];
-    sm+=smoothed[i];
-  }
-  const avg = sm/smoothed.length;
-  const ctr = smoothed[(PROC_H/2|0)*PROC_W + (PROC_W/2|0)];
-
-  SD.depth = { near:+mn.toFixed(3), far:+mx.toFixed(3), avg:+avg.toFixed(3), center:+ctr.toFixed(3), imageB64:'' };
-  g('dNear').textContent = mn.toFixed(3);
-  g('dFar').textContent  = mx.toFixed(3);
-  g('dAvg').textContent  = avg.toFixed(3);
-  g('ctrVal').textContent = Math.round((1-ctr)*100)+'%';
-
-  // Render fullscreen
-  renderDepth(smoothed, PROC_W, PROC_H, W, H);
-
-  // Snapshot for Firebase
-  SD.depth.imageB64 = proc.toDataURL('image/jpeg', 0.2).split(',')[1];
-
-  requestAnimationFrame(loop);
+function setLive() {
+  const p = document.getElementById('statusPill');
+  p.textContent = '● LIVE'; p.className = 'status-pill live';
 }
-
-// ── DEPTH ALGORITHM ────────────────────────────────────
-// No AI needed. Uses 4 visual cues:
-// 1. Luminance      — bright areas tend to be surfaces facing light (closer)
-// 2. Green channel  — vegetation (trees) = near objects
-// 3. Blue channel   — sky = very far
-// 4. Vertical bias  — bottom of frame = closer (natural perspective)
-function computeDepth(src, w, h) {
-  const out = new Float32Array(w * h);
-  for (let y = 0; y < h; y++) {
-    const vBias = (y / h) * 0.22; // bottom rows = nearer
-    for (let x = 0; x < w; x++) {
-      const i = y*w+x;
-      const r=src[i*4], g=src[i*4+1], b=src[i*4+2];
-      const lum = (0.299*r + 0.587*g + 0.114*b) / 255;
-
-      // Sky: blue dominant + bright → far
-      const sky = (b > 130 && b > r*1.05 && b > g*1.0 && lum > 0.45)
-        ? (b/255)*0.55 : 0;
-
-      // Vegetation: green dominant → near
-      const veg = (g > r+15 && g > b+15 && g > 55)
-        ? Math.min(1,(g-Math.max(r,b))/70)*0.45 : 0;
-
-      // Dark shadows / trunks → near obstacles
-      const shadow = lum < 0.2 ? (0.2-lum)*1.2 : 0;
-
-      // Combine into nearness [0=far, 1=near]
-      let near = lum*0.28 + veg + shadow - sky + vBias;
-      out[i] = Math.max(0, Math.min(1, near));
-    }
-  }
-  return out;
+function setError(msg) {
+  const p = document.getElementById('statusPill');
+  p.textContent = '✕ ' + msg; p.className = 'status-pill error';
 }
-
-function boxBlur(data, w, h, r) {
-  const t = new Float32Array(data.length);
-  const o = new Float32Array(data.length);
-  for (let y=0;y<h;y++) for (let x=0;x<w;x++) {
-    let s=0,c=0;
-    for (let k=-r;k<=r;k++){const nx=Math.max(0,Math.min(w-1,x+k));s+=data[y*w+nx];c++;}
-    t[y*w+x]=s/c;
-  }
-  for (let y=0;y<h;y++) for (let x=0;x<w;x++) {
-    let s=0,c=0;
-    for (let k=-r;k<=r;k++){const ny=Math.max(0,Math.min(h-1,y+k));s+=t[ny*w+x];c++;}
-    o[y*w+x]=s/c;
-  }
-  return o;
-}
-
-// ── RENDER ─────────────────────────────────────────────
-function renderDepth(depth, sw, sh, dw, dh) {
-  const id = new ImageData(sw, sh);
-  const d  = id.data;
-  for (let i=0;i<sw*sh;i++) {
-    const bright = 1 - depth[i]; // invert: near=bright white
-    let r,g,b;
-    if      (colorMode===0) { const c=bright*255|0; r=g=b=c; }
-    else if (colorMode===1) { [r,g,b]=heatmap(bright); }
-    else                    { [r,g,b]=inferno(bright); }
-    d[i*4]=r; d[i*4+1]=g; d[i*4+2]=b; d[i*4+3]=255;
-  }
-  pCtx.putImageData(id, 0, 0);
-  dCtx.imageSmoothingEnabled = true;
-  dCtx.imageSmoothingQuality = 'medium';
-  dCtx.drawImage(proc, 0, 0, dw, dh);
-}
-
-function heatmap(t) {
-  const s=[[0,0,0],[0,0,255],[0,255,255],[0,255,0],[255,255,0],[255,0,0],[255,255,255]];
-  const v=t*(s.length-1),i=v|0,f=v-i,a=s[Math.min(i,s.length-1)],b=s[Math.min(i+1,s.length-1)];
-  return [a[0]+(b[0]-a[0])*f|0, a[1]+(b[1]-a[1])*f|0, a[2]+(b[2]-a[2])*f|0];
-}
-function inferno(t) {
-  const s=[[0,0,4],[40,11,84],[101,21,110],[159,42,99],[212,72,66],[245,125,21],[252,194,14],[252,255,164]];
-  const v=t*(s.length-1),i=v|0,f=v-i,a=s[Math.min(i,s.length-1)],b=s[Math.min(i+1,s.length-1)];
-  return [a[0]+(b[0]-a[0])*f|0, a[1]+(b[1]-a[1])*f|0, a[2]+(b[2]-a[2])*f|0];
-}
-
-// ── FIREBASE ───────────────────────────────────────────
-async function pushFB() {
-  if (!running) return;
-  try {
-    const payload = {
-      gps: SD.gps, accel: SD.accel, gyro: SD.gyro,
-      depthStats: { near:SD.depth.near, far:SD.depth.far, avg:SD.depth.avg, centerVal:SD.depth.center },
-      depthImageB64: SD.depth.imageB64,
-      timestamp: Date.now()
-    };
-    await set(ref(db,'rover/phone'), payload);
-    packets++;
-    g('pkts').textContent = packets;
-    g('kb').textContent   = (JSON.stringify(payload).length/1024|0)+' KB';
-  } catch(e) { console.error(e); }
-}
-
-// ── HELPERS ────────────────────────────────────────────
-window.nextMode = () => {
-  colorMode = (colorMode+1)%3;
-  g('colorBtn').textContent = ['⬜ GREY','🌈 HEAT','🔥 INFERNO'][colorMode];
-};
-function setDot(cls, txt) {
-  g('dot').className = 'dot '+cls;
-  g('stxt').textContent = txt;
-}
-function g(id) { return document.getElementById(id); }
 </script>
 </body>
 </html>
