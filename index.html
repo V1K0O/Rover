@@ -39,6 +39,7 @@
   .row { display: flex; justify-content: space-between; margin-bottom: 8px; }
   .label { font-size: 0.7rem; color: #666; }
   .val { font-size: 0.85rem; color: #39ff14; font-weight: bold; }
+  .val.dim { color: #ffb300; }
   .btn {
     width: 100%; max-width: 360px;
     padding: 16px; border: none; border-radius: 12px;
@@ -59,10 +60,12 @@
 
 <div class="status-pill" id="statusPill">● IDLE</div>
 
+<!-- GPS card now includes ALT -->
 <div class="card">
   <div class="card-title">📍 GPS</div>
   <div class="row"><span class="label">LAT</span><span class="val" id="lat">--</span></div>
   <div class="row"><span class="label">LNG</span><span class="val" id="lng">--</span></div>
+  <div class="row"><span class="label">ALT</span><span class="val dim" id="alt">--</span></div>
   <div class="row"><span class="label">ACC</span><span class="val" id="acc">--</span></div>
 </div>
 
@@ -100,7 +103,12 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
 
-let sensorData = { gps:{lat:0,lng:0,acc:0}, accel:{x:0,y:0,z:0}, gyro:{alpha:0,beta:0,gamma:0} };
+// alt field added to gps object
+let sensorData = {
+  gps: { lat: 0, lng: 0, alt: 0, acc: 0 },
+  accel: { x: 0, y: 0, z: 0 },
+  gyro: { alpha: 0, beta: 0, gamma: 0 }
+};
 let packets = 0;
 let streaming = false;
 
@@ -119,10 +127,14 @@ window.startSensors = async function() {
   // GPS
   if (!navigator.geolocation) { setError('No GPS'); btn.disabled=false; return; }
   navigator.geolocation.watchPosition(pos => {
-    sensorData.gps = { lat: pos.coords.latitude, lng: pos.coords.longitude, acc: pos.coords.accuracy };
-    document.getElementById('lat').textContent = pos.coords.latitude.toFixed(6);
-    document.getElementById('lng').textContent = pos.coords.longitude.toFixed(6);
-    document.getElementById('acc').textContent = pos.coords.accuracy.toFixed(1) + 'm';
+    const c = pos.coords;
+    // altitude comes from c.altitude — null if device doesn't support it, fallback to 0
+    const alt = c.altitude ?? 0;
+    sensorData.gps = { lat: c.latitude, lng: c.longitude, alt: alt, acc: c.accuracy };
+    document.getElementById('lat').textContent = c.latitude.toFixed(6);
+    document.getElementById('lng').textContent = c.longitude.toFixed(6);
+    document.getElementById('alt').textContent = alt.toFixed(2) + ' m';
+    document.getElementById('acc').textContent = c.accuracy.toFixed(1) + ' m';
   }, err => setError('GPS: ' + err.message), { enableHighAccuracy: true });
 
   // Accelerometer
@@ -146,13 +158,13 @@ window.startSensors = async function() {
   streaming = true;
   setLive();
 
-  // Push to Firebase every 1s
+  // Push to Firebase every 500ms (faster for terrain mapping)
   setInterval(() => {
     if (!streaming) return;
     set(ref(db, 'rover/phone'), { ...sensorData, timestamp: Date.now() })
       .then(() => { packets++; document.getElementById('counter').textContent = 'PACKETS SENT: ' + packets; })
       .catch(err => setError(err.message));
-  }, 1000);
+  }, 500);
 };
 
 function setLive() {
