@@ -2,220 +2,310 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>CarbonOracle · Tree Sensor</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>CarbonOracle · Depth Node</title>
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
 <style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body {
-    font-family: 'Courier New', monospace;
-    background: #0a0f0a;
-    color: #39ff14;
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    padding: 20px;
+  :root {
+    --green: #39ff14;
+    --amber: #ffb300;
+    --red: #ff3333;
+    --bg: #000;
+    --panel: rgba(0,0,0,0.82);
   }
-  h1 { font-size: 1.2rem; letter-spacing: 4px; margin: 20px 0 5px; color: #39ff14; text-transform: uppercase; }
-  .sub { font-size: 0.65rem; color: #555; letter-spacing: 2px; margin-bottom: 24px; }
-  .status-pill {
-    padding: 6px 18px; border-radius: 20px; font-size: 0.7rem;
-    letter-spacing: 2px; margin-bottom: 20px;
-    border: 1px solid #39ff14; color: #39ff14;
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    background: #000;
+    font-family: 'Share Tech Mono', monospace;
+    color: var(--green);
+    width: 100vw; height: 100dvh;
+    overflow: hidden;
+    position: relative;
+  }
+
+  /* FULLSCREEN DEPTH CANVAS */
+  #depthCanvas {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100vw; height: 100dvh;
+    object-fit: cover;
+    image-rendering: pixelated;
+    z-index: 0;
+  }
+  #hiddenVideo {
+    position: fixed;
+    opacity: 0; pointer-events: none;
+    top: -9999px;
+    width: 320px; height: 240px;
+  }
+
+  /* Scanline overlay */
+  .scanlines {
+    position: fixed; inset: 0; z-index: 1; pointer-events: none;
+    background: repeating-linear-gradient(
+      to bottom,
+      transparent 0px,
+      transparent 3px,
+      rgba(0,0,0,0.18) 3px,
+      rgba(0,0,0,0.18) 4px
+    );
+  }
+
+  /* Vignette */
+  .vignette {
+    position: fixed; inset: 0; z-index: 2; pointer-events: none;
+    background: radial-gradient(ellipse at center, transparent 50%, rgba(0,0,0,0.75) 100%);
+  }
+
+  /* TOP BAR */
+  .topbar {
+    position: fixed; top: 0; left: 0; right: 0;
+    z-index: 10;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 18px 10px;
+    background: linear-gradient(to bottom, rgba(0,0,0,0.9), transparent);
+  }
+  .logo {
+    font-family: 'Orbitron', monospace;
+    font-size: 0.85rem;
+    font-weight: 900;
+    letter-spacing: 4px;
+    color: var(--green);
+    text-shadow: 0 0 12px var(--green);
+  }
+  .logo span { color: #fff; font-weight: 400; }
+  .status-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: #333; display: inline-block; margin-right: 6px;
     transition: all 0.3s;
   }
-  .status-pill.live { background: #39ff1422; animation: pulse 1.5s infinite; }
-  .status-pill.error { border-color: #ff4444; color: #ff4444; background: #ff444422; }
-  .status-pill.loading { border-color: #ffb300; color: #ffb300; background: #ffb30022; animation: pulse 1s infinite; }
-  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
+  .status-dot.live { background: var(--green); box-shadow: 0 0 8px var(--green); animation: blink 1.2s infinite; }
+  .status-dot.loading { background: var(--amber); box-shadow: 0 0 8px var(--amber); animation: blink 0.5s infinite; }
+  .status-dot.error { background: var(--red); box-shadow: 0 0 8px var(--red); }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+  .status-text { font-size: 0.6rem; letter-spacing: 3px; color: #aaa; }
 
-  /* Camera + Canvas overlay */
-  .camera-wrap {
-    width: 100%; max-width: 360px;
-    position: relative;
-    border-radius: 12px;
-    overflow: hidden;
-    border: 1px solid #1a2e1a;
-    background: #000;
-    margin-bottom: 12px;
-    aspect-ratio: 4/3;
+  /* HUD CORNER PANELS */
+  .hud-panel {
+    position: fixed; z-index: 10;
+    background: var(--panel);
+    border: 1px solid rgba(57,255,20,0.2);
+    border-radius: 8px;
+    padding: 10px 14px;
+    backdrop-filter: blur(6px);
   }
-  #video {
-    width: 100%; height: 100%;
-    object-fit: cover;
-    display: block;
-  }
-  #overlay {
-    position: absolute; top: 0; left: 0;
-    width: 100%; height: 100%;
-    pointer-events: none;
-  }
-  .cam-label {
-    position: absolute; top: 8px; left: 10px;
-    font-size: 0.55rem; letter-spacing: 3px; color: #39ff14aa;
-  }
-  .fps-badge {
-    position: absolute; top: 8px; right: 10px;
-    font-size: 0.55rem; letter-spacing: 2px; color: #555;
-  }
+  .hud-tl { top: 64px; left: 12px; min-width: 140px; }
+  .hud-tr { top: 64px; right: 12px; min-width: 130px; }
+  .hud-bl { bottom: 90px; left: 12px; min-width: 140px; }
+  .hud-br { bottom: 90px; right: 12px; min-width: 110px; }
 
-  .card {
-    width: 100%; max-width: 360px;
-    background: #111a11;
-    border: 1px solid #1a2e1a;
-    border-radius: 12px;
-    padding: 16px;
-    margin-bottom: 12px;
-  }
-  .card-title { font-size: 0.6rem; letter-spacing: 3px; color: #555; margin-bottom: 12px; }
-  .row { display: flex; justify-content: space-between; margin-bottom: 8px; }
-  .label { font-size: 0.7rem; color: #666; }
-  .val { font-size: 0.85rem; color: #39ff14; font-weight: bold; }
-  .val.dim { color: #ffb300; }
-  .val.tree { color: #00ff88; }
-  .val.na { color: #444; }
+  .hud-label { font-size: 0.48rem; letter-spacing: 3px; color: #555; margin-bottom: 7px; }
+  .hud-row { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 4px; align-items: baseline; }
+  .hud-key { font-size: 0.55rem; color: #666; }
+  .hud-val { font-size: 0.72rem; color: var(--green); font-weight: bold; }
+  .hud-val.amber { color: var(--amber); }
+  .hud-val.white { color: #fff; }
+  .hud-val.dim { color: #444; }
 
-  .tree-result-card {
-    width: 100%; max-width: 360px;
-    background: #0d1f0f;
-    border: 1px solid #00ff8833;
-    border-radius: 12px;
-    padding: 16px;
-    margin-bottom: 12px;
+  /* DEPTH LEGEND */
+  .depth-legend {
+    position: fixed; bottom: 90px; left: 50%; transform: translateX(-50%);
+    z-index: 10;
+    display: flex; align-items: center; gap: 8px;
+    background: var(--panel);
+    border: 1px solid rgba(57,255,20,0.15);
+    border-radius: 20px;
+    padding: 6px 14px;
+    backdrop-filter: blur(6px);
   }
-  .tree-big {
-    font-size: 2rem;
-    color: #00ff88;
-    font-weight: bold;
-    letter-spacing: 2px;
-    text-align: center;
-    margin: 8px 0 4px;
+  .legend-bar {
+    width: 80px; height: 8px; border-radius: 4px;
+    background: linear-gradient(to right, #000, #fff);
+    border: 1px solid #333;
   }
-  .tree-sub {
-    font-size: 0.6rem;
-    color: #555;
-    text-align: center;
-    letter-spacing: 2px;
-    margin-bottom: 8px;
-  }
-  .confidence-bar {
-    width: 100%; height: 4px;
-    background: #1a2e1a;
-    border-radius: 2px;
-    overflow: hidden;
-    margin-top: 10px;
-  }
-  .confidence-fill {
-    height: 100%;
-    background: linear-gradient(90deg, #00ff88, #39ff14);
-    border-radius: 2px;
-    transition: width 0.5s;
-  }
+  .legend-text { font-size: 0.5rem; letter-spacing: 2px; color: #555; }
 
-  .note {
-    font-size: 0.6rem; color: #333;
-    text-align: center; margin: 4px 0;
-    letter-spacing: 1px; line-height: 1.6;
-    max-width: 360px;
+  /* BOTTOM BAR */
+  .bottombar {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    z-index: 10;
+    display: flex; gap: 10px; align-items: center; justify-content: center;
+    padding: 12px 16px 20px;
+    background: linear-gradient(to top, rgba(0,0,0,0.92), transparent);
   }
-
-  .btn {
-    width: 100%; max-width: 360px;
-    padding: 16px; border: none; border-radius: 12px;
-    background: #39ff14; color: #0a0f0a;
-    font-family: 'Courier New', monospace;
-    font-size: 0.9rem; font-weight: bold;
-    letter-spacing: 2px; cursor: pointer;
-    margin-top: 8px; margin-bottom: 8px;
-  }
-  .btn:disabled { background: #1a2e1a; color: #333; cursor: not-allowed; }
-  .btn.secondary {
-    background: transparent;
-    border: 1px solid #39ff14;
-    color: #39ff14;
-    font-size: 0.75rem;
-    padding: 10px;
-  }
-  .counter { font-size: 0.65rem; color: #333; text-align: center; margin-top: 8px; letter-spacing: 2px; }
-
-  .sensor-toggle {
-    display: flex; gap: 8px; width: 100%; max-width: 360px; margin-bottom: 12px;
-  }
-  .toggle-btn {
-    flex: 1; padding: 8px; border-radius: 8px; font-family: 'Courier New', monospace;
-    font-size: 0.65rem; letter-spacing: 1px; cursor: pointer;
-    border: 1px solid #1a2e1a; background: #111a11; color: #555;
+  .btn-start {
+    flex: 1; max-width: 260px;
+    padding: 14px 10px;
+    background: var(--green);
+    color: #000;
+    border: none; border-radius: 10px;
+    font-family: 'Orbitron', monospace;
+    font-size: 0.75rem; font-weight: 700;
+    letter-spacing: 3px; cursor: pointer;
+    text-transform: uppercase;
+    box-shadow: 0 0 20px rgba(57,255,20,0.4);
     transition: all 0.2s;
   }
-  .toggle-btn.active { border-color: #39ff14; color: #39ff14; background: #39ff1411; }
+  .btn-start:disabled {
+    background: #1a1a1a; color: #333;
+    box-shadow: none; cursor: not-allowed;
+  }
+  .btn-mode {
+    padding: 14px 16px;
+    background: transparent;
+    border: 1px solid rgba(57,255,20,0.3);
+    border-radius: 10px;
+    color: var(--green);
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 0.65rem; letter-spacing: 2px;
+    cursor: pointer;
+  }
+
+  /* CROSSHAIR */
+  .crosshair {
+    position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%);
+    z-index: 9; pointer-events: none;
+    width: 40px; height: 40px;
+  }
+  .crosshair::before, .crosshair::after {
+    content: '';
+    position: absolute;
+    background: rgba(57,255,20,0.5);
+  }
+  .crosshair::before { width: 1px; height: 100%; left: 50%; top: 0; }
+  .crosshair::after { width: 100%; height: 1px; top: 50%; left: 0; }
+
+  /* CENTER DEPTH READOUT */
+  .center-depth {
+    position: fixed; top: 50%; left: 50%;
+    transform: translate(-50%, 30px);
+    z-index: 10; text-align: center;
+    pointer-events: none;
+  }
+  .center-depth-val {
+    font-family: 'Orbitron', monospace;
+    font-size: 1.4rem; font-weight: 900;
+    color: #fff;
+    text-shadow: 0 0 20px rgba(255,255,255,0.8), 0 0 40px rgba(57,255,20,0.4);
+    letter-spacing: 2px;
+  }
+  .center-depth-label { font-size: 0.45rem; letter-spacing: 4px; color: #666; margin-top: 2px; }
+
+  /* PACKETS COUNTER */
+  .pkt-counter {
+    font-size: 0.5rem; letter-spacing: 2px; color: #333;
+    text-align: center; padding-bottom: 2px;
+  }
+
+  /* LOADING SCREEN */
+  #loadScreen {
+    position: fixed; inset: 0; z-index: 100;
+    background: #000;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 20px;
+  }
+  .load-logo {
+    font-family: 'Orbitron', monospace;
+    font-size: 1.4rem; font-weight: 900;
+    letter-spacing: 6px;
+    color: var(--green);
+    text-shadow: 0 0 30px var(--green);
+  }
+  .load-sub { font-size: 0.6rem; letter-spacing: 4px; color: #555; }
+  .load-bar-wrap { width: 200px; height: 2px; background: #111; border-radius: 2px; overflow: hidden; }
+  .load-bar { height: 100%; width: 0%; background: var(--green); transition: width 0.4s; box-shadow: 0 0 8px var(--green); }
+  .load-msg { font-size: 0.6rem; letter-spacing: 2px; color: #555; min-height: 16px; }
+
+  /* FPS */
+  .fps { font-size: 0.48rem; letter-spacing: 2px; color: #333; }
 </style>
 </head>
 <body>
 
-<h1>CarbonOracle</h1>
-<div class="sub">TREE WIDTH SENSOR NODE</div>
+<!-- HIDDEN VIDEO for depth processing -->
+<video id="hiddenVideo" autoplay playsinline muted></video>
 
-<div class="status-pill" id="statusPill">● IDLE</div>
+<!-- FULLSCREEN DEPTH MAP -->
+<canvas id="depthCanvas"></canvas>
 
-<!-- Camera View -->
-<div class="camera-wrap" id="cameraWrap" style="display:none">
-  <video id="video" autoplay playsinline muted></video>
-  <canvas id="overlay"></canvas>
-  <div class="cam-label">🌿 TREE SCAN</div>
-  <div class="fps-badge" id="fpsBadge">-- FPS</div>
+<!-- Overlays -->
+<div class="scanlines"></div>
+<div class="vignette"></div>
+
+<!-- LOADING SCREEN -->
+<div id="loadScreen">
+  <div class="load-logo">CARBONORACLE</div>
+  <div class="load-sub">DEPTH MAPPING NODE v2.0</div>
+  <div class="load-bar-wrap"><div class="load-bar" id="loadBar"></div></div>
+  <div class="load-msg" id="loadMsg">INITIALIZING...</div>
 </div>
 
-<!-- Tree Detection Result -->
-<div class="tree-result-card" id="treeCard" style="display:none">
-  <div class="card-title">🌳 DETECTED TREE</div>
-  <div class="tree-big" id="treeWidth">-- cm</div>
-  <div class="tree-sub">ESTIMATED TRUNK / CANOPY WIDTH</div>
-  <div class="row" style="margin-top:8px">
-    <span class="label">CONFIDENCE</span><span class="val tree" id="treeConf">--%</span>
+<!-- TOP BAR -->
+<div class="topbar">
+  <div class="logo">C<span>arbon</span>O<span>racle</span></div>
+  <div style="display:flex;align-items:center;gap:6px">
+    <div class="status-dot" id="statusDot"></div>
+    <span class="status-text" id="statusText">IDLE</span>
   </div>
-  <div class="row">
-    <span class="label">DISTANCE EST.</span><span class="val dim" id="treeDist">-- m</span>
-  </div>
-  <div class="row">
-    <span class="label">BOX (px)</span><span class="val" id="treeBox">--</span>
-  </div>
-  <div class="confidence-bar"><div class="confidence-fill" id="confFill" style="width:0%"></div></div>
 </div>
 
-<!-- GPS -->
-<div class="card">
-  <div class="card-title">📍 GPS</div>
-  <div class="row"><span class="label">LAT</span><span class="val" id="lat">--</span></div>
-  <div class="row"><span class="label">LNG</span><span class="val" id="lng">--</span></div>
-  <div class="row"><span class="label">ALT</span><span class="val dim" id="alt">--</span></div>
-  <div class="row"><span class="label">ACC</span><span class="val" id="acc">--</span></div>
+<!-- CROSSHAIR -->
+<div class="crosshair"></div>
+
+<!-- CENTER DEPTH -->
+<div class="center-depth">
+  <div class="center-depth-val" id="centerDepth">--</div>
+  <div class="center-depth-label">CENTER DEPTH</div>
 </div>
 
-<!-- Sensors -->
-<div class="card">
-  <div class="card-title">📐 ACCELEROMETER (m/s²)</div>
-  <div class="row"><span class="label">X</span><span class="val" id="ax">--</span></div>
-  <div class="row"><span class="label">Y</span><span class="val" id="ay">--</span></div>
-  <div class="row"><span class="label">Z</span><span class="val" id="az">--</span></div>
+<!-- HUD: GPS -->
+<div class="hud-panel hud-tl">
+  <div class="hud-label">📍 GPS</div>
+  <div class="hud-row"><span class="hud-key">LAT</span><span class="hud-val" id="lat">--</span></div>
+  <div class="hud-row"><span class="hud-key">LNG</span><span class="hud-val" id="lng">--</span></div>
+  <div class="hud-row"><span class="hud-key">ALT</span><span class="hud-val amber" id="alt">--</span></div>
+  <div class="hud-row"><span class="hud-key">ACC</span><span class="hud-val white" id="acc">--</span></div>
 </div>
 
-<div class="card">
-  <div class="card-title">🌀 GYROSCOPE (°/s)</div>
-  <div class="row"><span class="label">α (Z)</span><span class="val" id="ga">--</span></div>
-  <div class="row"><span class="label">β (X)</span><span class="val" id="gb">--</span></div>
-  <div class="row"><span class="label">γ (Y)</span><span class="val" id="gg">--</span></div>
+<!-- HUD: IMU -->
+<div class="hud-panel hud-tr">
+  <div class="hud-label">📐 IMU</div>
+  <div class="hud-row"><span class="hud-key">AX</span><span class="hud-val" id="ax">--</span></div>
+  <div class="hud-row"><span class="hud-key">AY</span><span class="hud-val" id="ay">--</span></div>
+  <div class="hud-row"><span class="hud-key">AZ</span><span class="hud-val amber" id="az">--</span></div>
+  <div class="hud-row"><span class="hud-key">GY</span><span class="hud-val" id="gy">--</span></div>
 </div>
 
-<button class="btn" id="startBtn" onclick="startAll()">START SENSORS + CAMERA</button>
-
-<div class="note">
-  ⚠ Tree width is estimated using pixel-to-real-world ratio.<br>
-  For best accuracy: hold phone at 1–3 m from tree trunk, camera level.
+<!-- HUD: DEPTH STATS -->
+<div class="hud-panel hud-bl">
+  <div class="hud-label">🌊 DEPTH MAP</div>
+  <div class="hud-row"><span class="hud-key">MIN</span><span class="hud-val white" id="dMin">--</span></div>
+  <div class="hud-row"><span class="hud-key">MAX</span><span class="hud-val dim" id="dMax">--</span></div>
+  <div class="hud-row"><span class="hud-key">AVG</span><span class="hud-val" id="dAvg">--</span></div>
+  <div class="fps" id="fps">-- FPS</div>
 </div>
 
-<div class="counter" id="counter">PACKETS SENT: 0</div>
+<!-- HUD: PACKETS -->
+<div class="hud-panel hud-br">
+  <div class="hud-label">📡 UPLINK</div>
+  <div class="hud-row"><span class="hud-key">PKTS</span><span class="hud-val" id="pkts">0</span></div>
+  <div class="hud-row"><span class="hud-key">SIZE</span><span class="hud-val amber" id="pktSize">--</span></div>
+</div>
+
+<!-- DEPTH LEGEND -->
+<div class="depth-legend">
+  <span class="legend-text">NEAR</span>
+  <div class="legend-bar"></div>
+  <span class="legend-text">FAR</span>
+</div>
+
+<!-- BOTTOM BAR -->
+<div class="bottombar">
+  <button class="btn-mode" id="colorBtn" onclick="toggleColorMode()">🎨</button>
+  <button class="btn-start" id="startBtn" onclick="startAll()">⬡ ACTIVATE DEPTH SCAN</button>
+</div>
 
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
@@ -230,344 +320,387 @@ const firebaseConfig = {
   messagingSenderId: "498191140744",
   appId: "1:498191140744:web:8bcf47ebab898006165c3d"
 };
-
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
+
+// ── STATE ──────────────────────────────────────────────────
+let depthModel = null;
+let colorMode = 0; // 0=greyscale 1=heatmap 2=inferno
+let packets = 0;
+let lastFrameTime = performance.now();
+let frameCount = 0;
+let running = false;
 
 let sensorData = {
   gps: { lat: 0, lng: 0, alt: 0, acc: 0 },
   accel: { x: 0, y: 0, z: 0 },
   gyro: { alpha: 0, beta: 0, gamma: 0 },
-  tree: { detected: false, widthCm: null, confidence: null, distanceM: null }
+  depth: { min: 0, max: 0, avg: 0, centerVal: 0, imageB64: '' }
 };
-let packets = 0;
-let model = null;
-let detecting = false;
-let lastFpsTime = performance.now();
-let frameCount = 0;
 
-// ── TREE CLASSES that COCO-SSD can return which we treat as "vegetation"
-// COCO-SSD doesn't have "tree" but we also run a custom green-blob detector
-const TREE_CLASSES = new Set(['potted plant', 'vase']); // fallback COCO classes
+// ── LOAD SCREEN ────────────────────────────────────────────
+function loadProgress(pct, msg) {
+  document.getElementById('loadBar').style.width = pct + '%';
+  document.getElementById('loadMsg').textContent = msg;
+}
 
-// ── CAMERA FOV assumption (horizontal degrees) — typical phone camera ~67°
-const H_FOV_DEG = 67;
-
+// ── START ──────────────────────────────────────────────────
 window.startAll = async function() {
   const btn = document.getElementById('startBtn');
   btn.disabled = true;
-  setStatus('loading', '⏳ LOADING AI MODEL...');
 
-  // Load TF model
+  // Show load screen
+  document.getElementById('loadScreen').style.display = 'flex';
+  setStatus('loading', 'LOADING');
+
+  loadProgress(10, 'LOADING TENSORFLOW.JS...');
+  await tf.ready();
+
+  loadProgress(25, 'DOWNLOADING DEPTH MODEL...');
+  // Load MiDaS small via TF Hub (runs on mobile)
   try {
-    model = await cocoSsd.load({ base: 'mobilenet_v2' });
+    depthModel = await tf.loadGraphModel(
+      'https://tfhub.dev/intel/lite-model/midas/v2_1_small/1/lite/1',
+      { fromTFHub: true }
+    );
   } catch(e) {
-    setStatus('error', '✕ MODEL FAILED'); btn.disabled = false; return;
+    // Fallback: use a simple edge-based pseudo-depth if model fails
+    depthModel = null;
+    console.warn('MiDaS load failed, using fallback depth:', e);
   }
 
+  loadProgress(55, 'STARTING CAMERA...');
+  // Camera
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment', width: { ideal: 320 }, height: { ideal: 240 } }
+    });
+    const video = document.getElementById('hiddenVideo');
+    video.srcObject = stream;
+    await video.play();
+  } catch(e) {
+    loadProgress(100, '✕ CAMERA FAILED: ' + e.message);
+    setStatus('error', 'CAM ERR');
+    btn.disabled = false;
+    setTimeout(() => document.getElementById('loadScreen').style.display = 'none', 3000);
+    return;
+  }
+
+  loadProgress(70, 'REQUESTING PERMISSIONS...');
   // Motion permission (iOS)
   if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
-    try {
-      const p = await DeviceMotionEvent.requestPermission();
-      if (p !== 'granted') { setStatus('error', '✕ MOTION DENIED'); btn.disabled=false; return; }
-    } catch(e) { setStatus('error', '✕ PERMISSION ERR'); btn.disabled=false; return; }
+    try { await DeviceMotionEvent.requestPermission(); } catch(e) {}
   }
 
   // GPS
-  if (!navigator.geolocation) { setStatus('error', '✕ NO GPS'); btn.disabled=false; return; }
-  navigator.geolocation.watchPosition(pos => {
-    const c = pos.coords;
-    const alt = c.altitude ?? 0;
-    sensorData.gps = { lat: c.latitude, lng: c.longitude, alt, acc: c.accuracy };
-    document.getElementById('lat').textContent = c.latitude.toFixed(6);
-    document.getElementById('lng').textContent = c.longitude.toFixed(6);
-    document.getElementById('alt').textContent = alt.toFixed(2) + ' m';
-    document.getElementById('acc').textContent = c.accuracy.toFixed(1) + ' m';
-  }, err => setStatus('error', 'GPS: ' + err.message), { enableHighAccuracy: true });
+  if (navigator.geolocation) {
+    navigator.geolocation.watchPosition(pos => {
+      const c = pos.coords;
+      const alt = c.altitude ?? 0;
+      sensorData.gps = { lat: c.latitude, lng: c.longitude, alt, acc: c.accuracy };
+      document.getElementById('lat').textContent = c.latitude.toFixed(5);
+      document.getElementById('lng').textContent = c.longitude.toFixed(5);
+      document.getElementById('alt').textContent = alt.toFixed(1) + 'm';
+      document.getElementById('acc').textContent = '±' + c.accuracy.toFixed(0) + 'm';
+    }, null, { enableHighAccuracy: true });
+  }
 
   // Accelerometer
   window.addEventListener('devicemotion', e => {
     const a = e.accelerationIncludingGravity;
     if (!a) return;
-    sensorData.accel = { x: +a.x?.toFixed(3)||0, y: +a.y?.toFixed(3)||0, z: +a.z?.toFixed(3)||0 };
+    sensorData.accel = { x: +a.x?.toFixed(2)||0, y: +a.y?.toFixed(2)||0, z: +a.z?.toFixed(2)||0 };
     document.getElementById('ax').textContent = sensorData.accel.x;
     document.getElementById('ay').textContent = sensorData.accel.y;
     document.getElementById('az').textContent = sensorData.accel.z;
   });
 
-  // Gyroscope
+  // Gyro
   window.addEventListener('deviceorientation', e => {
-    sensorData.gyro = { alpha: +e.alpha?.toFixed(2)||0, beta: +e.beta?.toFixed(2)||0, gamma: +e.gamma?.toFixed(2)||0 };
-    document.getElementById('ga').textContent = sensorData.gyro.alpha;
-    document.getElementById('gb').textContent = sensorData.gyro.beta;
-    document.getElementById('gg').textContent = sensorData.gyro.gamma;
+    sensorData.gyro = { alpha: +e.alpha?.toFixed(1)||0, beta: +e.beta?.toFixed(1)||0, gamma: +e.gamma?.toFixed(1)||0 };
+    document.getElementById('gy').textContent = sensorData.gyro.beta?.toFixed(1);
   });
 
-  // Camera
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: 'environment', width: { ideal: 640 }, height: { ideal: 480 } }
-    });
-    const video = document.getElementById('video');
-    video.srcObject = stream;
-    await video.play();
-    document.getElementById('cameraWrap').style.display = 'block';
-    document.getElementById('treeCard').style.display = 'block';
-    resizeOverlay();
-    startDetection();
-  } catch(e) {
-    setStatus('error', '✕ CAMERA: ' + e.message); btn.disabled=false; return;
-  }
+  loadProgress(90, 'WARMING UP DEPTH ENGINE...');
+  await new Promise(r => setTimeout(r, 500));
+  loadProgress(100, 'READY');
+  await new Promise(r => setTimeout(r, 400));
 
-  setStatus('live', '● LIVE');
+  // Hide load screen
+  document.getElementById('loadScreen').style.display = 'none';
+  running = true;
+  setStatus('live', 'LIVE');
 
-  // Firebase push every 500ms
-  setInterval(() => {
-    set(ref(db, 'rover/phone'), { ...sensorData, timestamp: Date.now() })
-      .then(() => { packets++; document.getElementById('counter').textContent = 'PACKETS SENT: ' + packets; })
-      .catch(err => console.error(err));
-  }, 500);
+  // Start depth loop
+  requestAnimationFrame(depthLoop);
+
+  // Firebase push every 1000ms (depth image is large)
+  setInterval(pushFirebase, 1000);
 };
 
-function resizeOverlay() {
-  const video = document.getElementById('video');
-  const canvas = document.getElementById('overlay');
-  canvas.width = video.videoWidth || 640;
-  canvas.height = video.videoHeight || 480;
-  canvas.style.width = '100%';
-  canvas.style.height = '100%';
+// ── DEPTH LOOP ─────────────────────────────────────────────
+const depthCanvas = document.getElementById('depthCanvas');
+const dCtx = depthCanvas.getContext('2d', { willReadFrequently: true });
+
+// Off-screen canvas for video frame
+const offCanvas = document.createElement('canvas');
+offCanvas.width = 256; offCanvas.height = 256;
+const offCtx = offCanvas.getContext('2d', { willReadFrequently: true });
+
+async function depthLoop() {
+  if (!running) return;
+
+  const video = document.getElementById('hiddenVideo');
+  if (video.readyState < 2) { requestAnimationFrame(depthLoop); return; }
+
+  // FPS
+  frameCount++;
+  const now = performance.now();
+  const elapsed = now - lastFrameTime;
+  if (elapsed > 1000) {
+    document.getElementById('fps').textContent = Math.round(frameCount * 1000 / elapsed) + ' FPS';
+    frameCount = 0; lastFrameTime = now;
+  }
+
+  // Match canvas to screen
+  depthCanvas.width = window.innerWidth;
+  depthCanvas.height = window.innerHeight;
+
+  let depthMap; // Float32Array of [0..1] values, 256x256
+
+  if (depthModel) {
+    depthMap = await runMiDaS(video);
+  } else {
+    depthMap = fallbackDepth(video);
+  }
+
+  // Render depth map fullscreen
+  renderDepth(depthMap, 256, 256);
+
+  requestAnimationFrame(depthLoop);
 }
 
-// ─────────────────────────────────────────────────────────
-// TREE DETECTION PIPELINE
-// Step 1: COCO-SSD for any object detection (gives bounding boxes)
-// Step 2: Custom green-dominance heuristic to flag tree-like objects
-// Step 3: Width estimation from bounding box + FOV + estimated distance
-// ─────────────────────────────────────────────────────────
-
-async function startDetection() {
-  const video = document.getElementById('video');
-  const canvas = document.getElementById('overlay');
-  const ctx = canvas.getContext('2d');
-  detecting = true;
-
-  async function detect() {
-    if (!detecting || video.readyState < 2) { requestAnimationFrame(detect); return; }
-
-    // FPS
-    frameCount++;
-    const now = performance.now();
-    if (now - lastFpsTime > 1000) {
-      document.getElementById('fpsBadge').textContent = frameCount + ' FPS';
-      frameCount = 0; lastFpsTime = now;
-    }
-
-    // Resize canvas to match video
-    if (canvas.width !== video.videoWidth) resizeOverlay();
-
-    // Run COCO-SSD
-    let predictions = [];
-    try { predictions = await model.detect(video); } catch(e) {}
-
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    // Also run green-blob detector on canvas
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    const greenDetection = detectGreenBlob(ctx, canvas.width, canvas.height);
-
-    // Pick best tree candidate
-    // Priority: green blob > COCO plant classes
-    let treePrediction = null;
-
-    if (greenDetection.found) {
-      treePrediction = {
-        bbox: greenDetection.bbox,
-        score: greenDetection.confidence,
-        class: 'tree (green-detect)',
-        source: 'green'
-      };
-    } else {
-      const plantPred = predictions.find(p => TREE_CLASSES.has(p.class) && p.score > 0.4);
-      if (plantPred) {
-        treePrediction = { ...plantPred, source: 'coco' };
-      }
-    }
-
-    // Draw all COCO boxes dimly
-    predictions.forEach(p => {
-      const [x, y, w, h] = p.bbox;
-      ctx.strokeStyle = '#39ff1444';
-      ctx.lineWidth = 1;
-      ctx.strokeRect(x, y, w, h);
-      ctx.fillStyle = '#39ff1488';
-      ctx.font = '10px Courier New';
-      ctx.fillText(p.class + ' ' + (p.score*100|0) + '%', x+2, y-2);
+// ── MiDaS INFERENCE ───────────────────────────────────────
+async function runMiDaS(video) {
+  let depthMap;
+  try {
+    const inputTensor = tf.tidy(() => {
+      const img = tf.browser.fromPixels(video);
+      const resized = tf.image.resizeBilinear(img, [256, 256]);
+      const normalized = resized.toFloat().div(255.0);
+      return normalized.expandDims(0); // [1, 256, 256, 3]
     });
 
-    if (treePrediction) {
-      const [bx, by, bw, bh] = treePrediction.bbox;
+    const output = depthModel.predict(inputTensor);
+    const rawData = await output.squeeze().data();
+    inputTensor.dispose();
+    output.dispose();
 
-      // Draw tree box brightly
-      ctx.strokeStyle = '#00ff88';
-      ctx.lineWidth = 2.5;
-      ctx.strokeRect(bx, by, bw, bh);
-
-      // Corner accents
-      const cs = 12;
-      ctx.strokeStyle = '#00ff88';
-      ctx.lineWidth = 3;
-      [[bx,by],[bx+bw,by],[bx,by+bh],[bx+bw,by+bh]].forEach(([cx,cy]) => {
-        ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(cx+(cx<bx+bw/2?cs:-cs),cy); ctx.stroke();
-        ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(cx,cy+(cy<by+bh/2?cs:-cs)); ctx.stroke();
-      });
-
-      // Label
-      ctx.fillStyle = '#00ff88dd';
-      ctx.fillRect(bx, by - 18, bw, 18);
-      ctx.fillStyle = '#0a0f0a';
-      ctx.font = 'bold 10px Courier New';
-      ctx.fillText('🌳 TREE  ' + (treePrediction.score*100|0) + '%', bx+4, by-5);
-
-      // Width measurement line
-      const midY = by + bh * 0.7;
-      ctx.strokeStyle = '#ffb300';
-      ctx.lineWidth = 1.5;
-      ctx.setLineDash([4,3]);
-      ctx.beginPath(); ctx.moveTo(bx, midY); ctx.lineTo(bx+bw, midY); ctx.stroke();
-      ctx.setLineDash([]);
-
-      // Estimate width
-      const widthCm = estimateWidthCm(bw, canvas.width, treePrediction.score);
-      const distM = estimateDistance(bw, canvas.width);
-
-      // Update UI
-      document.getElementById('treeWidth').textContent = widthCm + ' cm';
-      document.getElementById('treeConf').textContent = (treePrediction.score*100|0) + '%';
-      document.getElementById('treeDist').textContent = distM.toFixed(1) + ' m';
-      document.getElementById('treeBox').textContent = bw.toFixed(0) + '×' + bh.toFixed(0) + 'px';
-      document.getElementById('confFill').style.width = (treePrediction.score*100) + '%';
-
-      sensorData.tree = {
-        detected: true,
-        widthCm: +widthCm,
-        confidence: +(treePrediction.score*100).toFixed(1),
-        distanceM: +distM.toFixed(2)
-      };
-
-      // Width annotation on canvas
-      ctx.fillStyle = '#ffb300';
-      ctx.font = 'bold 11px Courier New';
-      ctx.fillText('⟵ ' + widthCm + ' cm ⟶', bx + bw/2 - 40, midY - 5);
-
-    } else {
-      // No tree
-      document.getElementById('treeWidth').textContent = '-- cm';
-      document.getElementById('treeConf').textContent = '--%';
-      document.getElementById('treeDist').textContent = '-- m';
-      document.getElementById('treeBox').textContent = '--';
-      document.getElementById('confFill').style.width = '0%';
-      sensorData.tree = { detected: false, widthCm: null, confidence: null, distanceM: null };
-
-      // Dim overlay text
-      ctx.fillStyle = '#39ff1422';
-      ctx.font = '11px Courier New';
-      ctx.fillText('SCANNING FOR TREES...', 10, canvas.height - 12);
+    // Normalize to [0,1]
+    let min = Infinity, max = -Infinity;
+    for (let i = 0; i < rawData.length; i++) {
+      if (rawData[i] < min) min = rawData[i];
+      if (rawData[i] > max) max = rawData[i];
+    }
+    const range = max - min || 1;
+    depthMap = new Float32Array(rawData.length);
+    for (let i = 0; i < rawData.length; i++) {
+      depthMap[i] = (rawData[i] - min) / range;
     }
 
-    requestAnimationFrame(detect);
+    // Update stats
+    const avg = rawData.reduce((s, v) => s + v, 0) / rawData.length;
+    const centerIdx = Math.floor(128 * 256 + 128);
+    const centerVal = depthMap[centerIdx];
+    updateDepthStats(min, max, avg, centerVal);
+
+  } catch(e) {
+    depthMap = fallbackDepth(video);
   }
-  requestAnimationFrame(detect);
+  return depthMap;
 }
 
-// ─────────────────────────────────────────────────────────
-// GREEN BLOB DETECTOR
-// Samples pixels from the canvas, finds the largest
-// contiguous vertical region where green dominates.
-// Works well for tree trunks (darker) and canopy (bright green).
-// ─────────────────────────────────────────────────────────
-function detectGreenBlob(ctx, w, h) {
-  // Sample a downscaled grid for performance
-  const SAMPLE = 4; // check every 4th pixel
-  const imgData = ctx.getImageData(0, 0, w, h);
-  const data = imgData.data;
+// ── FALLBACK: LUMINANCE-BASED PSEUDO DEPTH ─────────────────
+// If MiDaS fails, use luminance + edge-based heuristic
+// Bright = closer (works for foliage/sky differentiation)
+function fallbackDepth(video) {
+  offCtx.drawImage(video, 0, 0, 256, 256);
+  const imgData = offCtx.getImageData(0, 0, 256, 256);
+  const d = imgData.data;
+  const depth = new Float32Array(256 * 256);
 
-  let minX = w, maxX = 0, minY = h, maxY = 0;
-  let greenCount = 0;
-  let totalSamples = 0;
+  for (let i = 0; i < 256 * 256; i++) {
+    const r = d[i*4], g = d[i*4+1], b = d[i*4+2];
+    // Luminance
+    const lum = (0.299*r + 0.587*g + 0.114*b) / 255;
+    // Green objects are likely trees/near objects
+    const greenBias = Math.max(0, (g - r - 20) / 255);
+    depth[i] = Math.min(1, lum * 0.7 + greenBias * 0.3);
+  }
 
-  for (let y = 0; y < h; y += SAMPLE) {
-    for (let x = 0; x < w; x += SAMPLE) {
-      const i = (y * w + x) * 4;
-      const r = data[i], g = data[i+1], b = data[i+2];
-      totalSamples++;
+  // Simple Gaussian blur pass to smooth
+  const smoothed = gaussianBlur(depth, 256, 256, 2);
 
-      // Green dominance: G > R+30 && G > B+30 && G > 50
-      // Also catches darker greens: G > R && G > B && G > 40
-      const isGreen = (g > r + 20 && g > b + 20 && g > 50) ||
-                      (g > r + 10 && g > b + 10 && g > 80 && r < 160);
+  const min = Math.min(...smoothed);
+  const max = Math.max(...smoothed);
+  const avg = smoothed.reduce((a,b)=>a+b,0)/smoothed.length;
+  updateDepthStats(min, max, avg, smoothed[128*256+128]);
 
-      if (isGreen) {
-        greenCount++;
-        if (x < minX) minX = x;
-        if (x > maxX) maxX = x;
-        if (y < minY) minY = y;
-        if (y > maxY) maxY = y;
+  return smoothed;
+}
+
+function gaussianBlur(data, w, h, radius) {
+  const out = new Float32Array(data.length);
+  const kernelSize = radius * 2 + 1;
+  // Horizontal pass
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      let sum = 0, count = 0;
+      for (let k = -radius; k <= radius; k++) {
+        const nx = Math.max(0, Math.min(w-1, x+k));
+        sum += data[y*w+nx]; count++;
       }
+      out[y*w+x] = sum/count;
     }
   }
+  // Vertical pass
+  const out2 = new Float32Array(data.length);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      let sum = 0, count = 0;
+      for (let k = -radius; k <= radius; k++) {
+        const ny = Math.max(0, Math.min(h-1, y+k));
+        sum += out[ny*w+x]; count++;
+      }
+      out2[y*w+x] = sum/count;
+    }
+  }
+  return out2;
+}
 
-  const greenRatio = greenCount / totalSamples;
+// ── RENDER DEPTH MAP ──────────────────────────────────────
+function renderDepth(depthMap, srcW, srcH) {
+  const W = depthCanvas.width, H = depthCanvas.height;
+  const imgData = dCtx.createImageData(srcW, srcH);
+  const d = imgData.data;
 
-  // Need at least 8% of frame to be green, and a reasonable bounding box
-  if (greenRatio < 0.08 || (maxX - minX) < 30 || (maxY - minY) < 40) {
-    return { found: false };
+  for (let i = 0; i < srcW * srcH; i++) {
+    const v = depthMap[i]; // 0=far, 1=near (invert for natural look: bright=near)
+    const inv = 1 - v; // invert: close=bright
+
+    let r, g, b;
+    if (colorMode === 0) {
+      // Pure greyscale
+      const c = Math.round(inv * 255);
+      r = g = b = c;
+    } else if (colorMode === 1) {
+      // Heatmap: black → blue → cyan → green → yellow → red → white
+      [r, g, b] = heatmap(inv);
+    } else {
+      // Inferno: black → purple → orange → yellow
+      [r, g, b] = inferno(inv);
+    }
+
+    d[i*4]   = r;
+    d[i*4+1] = g;
+    d[i*4+2] = b;
+    d[i*4+3] = 255;
   }
 
-  // Add small padding
-  const pad = 10;
-  const bbox = [
-    Math.max(0, minX - pad),
-    Math.max(0, minY - pad),
-    Math.min(w, maxX - minX + pad*2),
-    Math.min(h, maxY - minY + pad*2)
-  ];
+  // Draw low-res to offscreen then scale up
+  const tmpCanvas = document.createElement('canvas');
+  tmpCanvas.width = srcW; tmpCanvas.height = srcH;
+  tmpCanvas.getContext('2d').putImageData(imgData, 0, 0);
 
-  // Confidence based on green coverage (capped at 0.92)
-  const confidence = Math.min(0.92, greenRatio * 6);
+  // Scale to fill screen with slight smoothing
+  dCtx.imageSmoothingEnabled = true;
+  dCtx.imageSmoothingQuality = 'medium';
+  dCtx.drawImage(tmpCanvas, 0, 0, W, H);
 
-  return { found: true, bbox, confidence };
+  // Store compressed snapshot for Firebase
+  sensorData.depth.imageB64 = tmpCanvas.toDataURL('image/jpeg', 0.25).split(',')[1];
 }
 
-// ─────────────────────────────────────────────────────────
-// WIDTH ESTIMATION
-// Real-world width = (box_pixels / frame_pixels) × estimated_real_frame_width
-// Frame width at distance D = 2 × D × tan(FOV/2)
-// We estimate D from how much of the frame the object fills.
-// If box fills 30% of frame width, tree is probably ~2m away.
-// ─────────────────────────────────────────────────────────
-function estimateDistance(boxWidthPx, frameWidthPx) {
-  // Rough heuristic: if tree fills 100% of frame → ~0.5m
-  // if tree fills 10% of frame → ~5m
-  const ratio = boxWidthPx / frameWidthPx;
-  // distance = 1 / (ratio * 2)  — empirical formula for ~0.5m wide trunk at 67° FOV
-  return Math.max(0.3, Math.min(10, 0.5 / ratio));
+function heatmap(t) {
+  const stops = [[0,0,0],[0,0,255],[0,255,255],[0,255,0],[255,255,0],[255,0,0],[255,255,255]];
+  const s = t * (stops.length - 1);
+  const i = Math.floor(s), f = s - i;
+  const a = stops[Math.min(i, stops.length-1)];
+  const b2 = stops[Math.min(i+1, stops.length-1)];
+  return [Math.round(a[0]+(b2[0]-a[0])*f), Math.round(a[1]+(b2[1]-a[1])*f), Math.round(a[2]+(b2[2]-a[2])*f)];
 }
 
-function estimateWidthCm(boxWidthPx, frameWidthPx, confidence) {
-  const distM = estimateDistance(boxWidthPx, frameWidthPx);
-  const fovRad = (H_FOV_DEG * Math.PI) / 180;
-  // Real frame width at that distance
-  const frameRealWidthM = 2 * distM * Math.tan(fovRad / 2);
-  const ratio = boxWidthPx / frameWidthPx;
-  const widthM = ratio * frameRealWidthM;
-  return Math.round(widthM * 100); // convert to cm
+function inferno(t) {
+  const stops = [[0,0,4],[40,11,84],[101,21,110],[159,42,99],[212,72,66],[245,125,21],[252,194,14],[252,255,164]];
+  const s = t * (stops.length - 1);
+  const i = Math.floor(s), f = s - i;
+  const a = stops[Math.min(i, stops.length-1)];
+  const b2 = stops[Math.min(i+1, stops.length-1)];
+  return [Math.round(a[0]+(b2[0]-a[0])*f), Math.round(a[1]+(b2[1]-a[1])*f), Math.round(a[2]+(b2[2]-a[2])*f)];
 }
 
+// ── DEPTH STATS UI ─────────────────────────────────────────
+function updateDepthStats(min, max, avg, center) {
+  sensorData.depth.min = +min.toFixed(3);
+  sensorData.depth.max = +max.toFixed(3);
+  sensorData.depth.avg = +avg.toFixed(3);
+  sensorData.depth.centerVal = +center.toFixed(3);
+
+  document.getElementById('dMin').textContent = min.toFixed(3);
+  document.getElementById('dMax').textContent = max.toFixed(3);
+  document.getElementById('dAvg').textContent = avg.toFixed(3);
+
+  // Center depth as percentage (100% = closest)
+  const pct = Math.round((1 - center) * 100);
+  document.getElementById('centerDepth').textContent = pct + '%';
+}
+
+// ── FIREBASE ───────────────────────────────────────────────
+async function pushFirebase() {
+  if (!running) return;
+  try {
+    const payload = {
+      gps: sensorData.gps,
+      accel: sensorData.accel,
+      gyro: sensorData.gyro,
+      depthStats: {
+        min: sensorData.depth.min,
+        max: sensorData.depth.max,
+        avg: sensorData.depth.avg,
+        centerVal: sensorData.depth.centerVal
+      },
+      depthImageB64: sensorData.depth.imageB64,
+      timestamp: Date.now()
+    };
+    await set(ref(db, 'rover/phone'), payload);
+    packets++;
+    document.getElementById('pkts').textContent = packets;
+    // Estimate packet size
+    const kb = Math.round(JSON.stringify(payload).length / 1024);
+    document.getElementById('pktSize').textContent = kb + ' KB';
+  } catch(e) {
+    console.error('Firebase push failed:', e);
+  }
+}
+
+// ── COLOR MODE TOGGLE ──────────────────────────────────────
+window.toggleColorMode = function() {
+  colorMode = (colorMode + 1) % 3;
+  const labels = ['⬜ GREY', '🌈 HEAT', '🔥 INFERNO'];
+  document.getElementById('colorBtn').textContent = labels[colorMode];
+};
+
+// ── STATUS ─────────────────────────────────────────────────
 function setStatus(type, text) {
-  const p = document.getElementById('statusPill');
-  p.textContent = text;
-  p.className = 'status-pill ' + type;
+  const dot = document.getElementById('statusDot');
+  const txt = document.getElementById('statusText');
+  dot.className = 'status-dot ' + type;
+  txt.textContent = text;
 }
+
+// Hide load screen on first interaction if not started
+document.getElementById('startBtn').addEventListener('click', () => {}, { once: true });
 </script>
 </body>
 </html>
