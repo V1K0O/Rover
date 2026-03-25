@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CarbonOracle · Phone Sensor</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Courier New', monospace;
+    background: #0a0f0a;
+    color: #39ff14;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 20px;
+  }
+  h1 { font-size: 1.2rem; letter-spacing: 4px; margin: 20px 0 5px; color: #39ff14; text-transform: uppercase; }
+  .sub { font-size: 0.65rem; color: #555; letter-spacing: 2px; margin-bottom: 24px; }
+  .status-pill {
+    padding: 6px 18px; border-radius: 20px; font-size: 0.7rem;
+    letter-spacing: 2px; margin-bottom: 20px;
+    border: 1px solid #39ff14; color: #39ff14;
+    transition: all 0.3s;
+  }
+  .status-pill.live { background: #39ff1422; animation: pulse 1.5s infinite; }
+  .status-pill.error { border-color: #ff4444; color: #ff4444; background: #ff444422; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
+  .card {
+    width: 100%; max-width: 360px;
+    background: #111a11;
+    border: 1px solid #1a2e1a;
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 12px;
+  }
+  .card-title { font-size: 0.6rem; letter-spacing: 3px; color: #555; margin-bottom: 12px; }
+  .row { display: flex; justify-content: space-between; margin-bottom: 8px; }
+  .label { font-size: 0.7rem; color: #666; }
+  .val { font-size: 0.85rem; color: #39ff14; font-weight: bold; }
+  .btn {
+    width: 100%; max-width: 360px;
+    padding: 16px; border: none; border-radius: 12px;
+    background: #39ff14; color: #0a0f0a;
+    font-family: 'Courier New', monospace;
+    font-size: 0.9rem; font-weight: bold;
+    letter-spacing: 2px; cursor: pointer;
+    margin-top: 8px;
+  }
+  .btn:disabled { background: #1a2e1a; color: #333; cursor: not-allowed; }
+  .counter { font-size: 0.65rem; color: #333; text-align: center; margin-top: 12px; letter-spacing: 2px; }
+</style>
+</head>
+<body>
+
+<h1>CarbonOracle</h1>
+<div class="sub">PHONE SENSOR NODE</div>
+
+<div class="status-pill" id="statusPill">● IDLE</div>
+
+<div class="card">
+  <div class="card-title">📍 GPS</div>
+  <div class="row"><span class="label">LAT</span><span class="val" id="lat">--</span></div>
+  <div class="row"><span class="label">LNG</span><span class="val" id="lng">--</span></div>
+  <div class="row"><span class="label">ACC</span><span class="val" id="acc">--</span></div>
+</div>
+
+<div class="card">
+  <div class="card-title">📐 ACCELEROMETER (m/s²)</div>
+  <div class="row"><span class="label">X</span><span class="val" id="ax">--</span></div>
+  <div class="row"><span class="label">Y</span><span class="val" id="ay">--</span></div>
+  <div class="row"><span class="label">Z</span><span class="val" id="az">--</span></div>
+</div>
+
+<div class="card">
+  <div class="card-title">🌀 GYROSCOPE (°/s)</div>
+  <div class="row"><span class="label">α (Z)</span><span class="val" id="ga">--</span></div>
+  <div class="row"><span class="label">β (X)</span><span class="val" id="gb">--</span></div>
+  <div class="row"><span class="label">γ (Y)</span><span class="val" id="gg">--</span></div>
+</div>
+
+<button class="btn" id="startBtn" onclick="startSensors()">START STREAMING</button>
+<div class="counter" id="counter">PACKETS SENT: 0</div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getDatabase, ref, set } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyCzEV5MY4_pT5ZEbUTVLCLN3HnC1myHRMo",
+  authDomain: "rover-107c5.firebaseapp.com",
+  databaseURL: "https://rover-107c5-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "rover-107c5",
+  storageBucket: "rover-107c5.firebasestorage.app",
+  messagingSenderId: "498191140744",
+  appId: "1:498191140744:web:8bcf47ebab898006165c3d"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getDatabase(app);
+
+let sensorData = { gps:{lat:0,lng:0,acc:0}, accel:{x:0,y:0,z:0}, gyro:{alpha:0,beta:0,gamma:0} };
+let packets = 0;
+let streaming = false;
+
+window.startSensors = async function() {
+  const btn = document.getElementById('startBtn');
+  btn.disabled = true;
+
+  // Request motion permission (iOS 13+)
+  if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
+    try {
+      const perm = await DeviceMotionEvent.requestPermission();
+      if (perm !== 'granted') { setError('Motion permission denied'); btn.disabled=false; return; }
+    } catch(e) { setError('Permission error'); btn.disabled=false; return; }
+  }
+
+  // GPS
+  if (!navigator.geolocation) { setError('No GPS'); btn.disabled=false; return; }
+  navigator.geolocation.watchPosition(pos => {
+    sensorData.gps = { lat: pos.coords.latitude, lng: pos.coords.longitude, acc: pos.coords.accuracy };
+    document.getElementById('lat').textContent = pos.coords.latitude.toFixed(6);
+    document.getElementById('lng').textContent = pos.coords.longitude.toFixed(6);
+    document.getElementById('acc').textContent = pos.coords.accuracy.toFixed(1) + 'm';
+  }, err => setError('GPS: ' + err.message), { enableHighAccuracy: true });
+
+  // Accelerometer
+  window.addEventListener('devicemotion', e => {
+    const a = e.accelerationIncludingGravity;
+    if (!a) return;
+    sensorData.accel = { x: a.x?.toFixed(3)||0, y: a.y?.toFixed(3)||0, z: a.z?.toFixed(3)||0 };
+    document.getElementById('ax').textContent = sensorData.accel.x;
+    document.getElementById('ay').textContent = sensorData.accel.y;
+    document.getElementById('az').textContent = sensorData.accel.z;
+  });
+
+  // Gyroscope
+  window.addEventListener('deviceorientation', e => {
+    sensorData.gyro = { alpha: e.alpha?.toFixed(2)||0, beta: e.beta?.toFixed(2)||0, gamma: e.gamma?.toFixed(2)||0 };
+    document.getElementById('ga').textContent = sensorData.gyro.alpha;
+    document.getElementById('gb').textContent = sensorData.gyro.beta;
+    document.getElementById('gg').textContent = sensorData.gyro.gamma;
+  });
+
+  streaming = true;
+  setLive();
+
+  // Push to Firebase every 1s
+  setInterval(() => {
+    if (!streaming) return;
+    set(ref(db, 'rover/phone'), { ...sensorData, timestamp: Date.now() })
+      .then(() => { packets++; document.getElementById('counter').textContent = 'PACKETS SENT: ' + packets; })
+      .catch(err => setError(err.message));
+  }, 1000);
+};
+
+function setLive() {
+  const p = document.getElementById('statusPill');
+  p.textContent = '● LIVE'; p.className = 'status-pill live';
+}
+function setError(msg) {
+  const p = document.getElementById('statusPill');
+  p.textContent = '✕ ' + msg; p.className = 'status-pill error';
+}
+</script>
+</body>
+</html>
